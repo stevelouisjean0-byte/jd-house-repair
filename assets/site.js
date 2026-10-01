@@ -6,7 +6,7 @@
   /* ---- tape measure progress + header state + call dock ---- */
   const blade = $('#tapeBlade');
   const bar = $('.bar');
-  const house = $('#house');
+  const dusks = $$('.house, .gallery');
   const dock = $('.dock');
   const hero = $('.hero');
   let ticking = false;
@@ -15,13 +15,25 @@
     const max = document.documentElement.scrollHeight - innerHeight;
     const p = max > 0 ? Math.min(1, scrollY / max) : 0;
     blade.style.width = (p * 100).toFixed(2) + '%';
-    const hr = house.getBoundingClientRect();
-    bar.classList.toggle('on-dusk', hr.top < 64 && hr.bottom > 0);
-    dock.classList.toggle('show', hero.getBoundingClientRect().bottom < 0);
+    const h = bar.offsetHeight;
+    bar.classList.toggle('on-dusk', dusks.some((d) => { const r = d.getBoundingClientRect(); return r.top < h && r.bottom > 0; }));
+    dock.classList.toggle('show', hero ? hero.getBoundingClientRect().bottom < 0 : scrollY > 240);
   }
   addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
   addEventListener('resize', onScroll);
   onScroll();
+
+  /* ---- menu (narrow screens) ---- */
+  const menuBtn = $('.menu-btn');
+  const nav = $('#siteNav');
+  const setMenu = (open) => {
+    bar.classList.toggle('menu-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+  };
+  menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'));
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && bar.classList.contains('menu-open')) { setMenu(false); menuBtn.focus(); } });
+  nav.addEventListener('click', (e) => { if (e.target.closest('a')) setMenu(false); });
+  document.addEventListener('click', (e) => { if (!bar.contains(e.target)) setMenu(false); });
 
   /* ---- reveal on scroll ---- */
   const rvObs = new IntersectionObserver((es) => {
@@ -39,8 +51,7 @@
       const t0 = performance.now(), dur = 1100;
       const step = (t) => {
         const k = Math.min(1, (t - t0) / dur);
-        const v = target * (1 - Math.pow(1 - k, 3));
-        el.textContent = v.toFixed(1);
+        el.textContent = (target * (1 - Math.pow(1 - k, 3))).toFixed(1);
         if (k < 1) requestAnimationFrame(step); else el.textContent = target.toFixed(1);
       };
       requestAnimationFrame(step);
@@ -48,32 +59,38 @@
     o.observe(el);
   });
 
-  /* ---- rooms light up as chapters are read ---- */
-  const rooms = new Map($$('.cutaway .room').map((g) => [g.dataset.room, g]));
-  const key = $('#stageKey');
-  const names = { kitchen: '01 Kitchen: lights on.', ceilings: '02 Ceilings & walls: lights on.', heater: '03 Water heater: lights on.', other: '04 The rest of the list: lights on.' };
-  const order = ['kitchen', 'ceilings', 'heater', 'other'];
-  const chapters = $$('.ch');
-  function light(room) {
-    const idx = order.indexOf(room);
-    order.forEach((r, i) => {
-      const g = rooms.get(r);
-      g.classList.toggle('lit', i === idx);
-      g.classList.toggle('done', i < idx);
+  /* ---- home: the list and the drawing light each other up ---- */
+  const cut = $('.menu-stage .cutaway');
+  if (cut) {
+    const rooms = new Map($$('.room', cut).map((g) => [g.dataset.room, g]));
+    const links = $$('.room-link');
+    let touched = false;
+    const show = (key) => {
+      rooms.forEach((g, k) => g.classList.toggle('lit', k === key));
+      links.forEach((l) => l.classList.toggle('hot', l.dataset.room === key));
+    };
+    links.forEach((l) => {
+      const on = () => { touched = true; show(l.dataset.room); };
+      l.addEventListener('mouseenter', on);
+      l.addEventListener('focus', on);
     });
-    chapters.forEach((c) => c.classList.toggle('current', c.dataset.room === room));
-    key.textContent = names[room] || '';
+    rooms.forEach((g, k) => {
+      g.addEventListener('mouseenter', () => { touched = true; show(k); });
+      g.addEventListener('focus', () => { touched = true; show(k); });
+    });
+    $('.room-list').addEventListener('mouseleave', () => show(null));
+    // once in view, walk the lights through each room, then leave the kitchen on
+    if (!reduce) {
+      const order = ['kitchen', 'ceilings', 'heater', 'other'];
+      const o = new IntersectionObserver(([e]) => {
+        if (!e.isIntersecting) return;
+        o.disconnect();
+        order.forEach((k, i) => setTimeout(() => { if (!touched) show(k); }, 400 + i * 900));
+        setTimeout(() => { if (!touched) show('kitchen'); }, 400 + order.length * 900);
+      }, { threshold: 0.5 });
+      o.observe(cut);
+    } else show('kitchen');
   }
-  const chObs = new IntersectionObserver((es) => {
-    es.forEach((e) => { if (e.isIntersecting) light(e.target.dataset.room); });
-  }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
-  chapters.forEach((c) => chObs.observe(c));
-
-  // clicking a room in the drawing jumps to its chapter
-  rooms.forEach((g, r) => {
-    g.style.cursor = 'pointer';
-    g.addEventListener('click', () => $('#' + r).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' }));
-  });
 
   /* ---- videos: play only while on screen ---- */
   const vids = $$('video.lazyvid');
@@ -92,30 +109,34 @@
     vids.forEach((v) => vObs.observe(v));
   }
 
-  /* ---- flashlight in the dusk section (fine pointers only) ---- */
+  /* ---- flashlight in dusk sections (fine pointers only) ---- */
   if (!reduce && matchMedia('(pointer: fine)').matches) {
-    house.addEventListener('pointermove', (e) => {
-      const r = house.getBoundingClientRect();
-      house.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-      house.style.setProperty('--my', (e.clientY - r.top) + 'px');
-    });
+    $$('.house').forEach((sec) => sec.addEventListener('pointermove', (e) => {
+      const r = sec.getBoundingClientRect();
+      sec.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      sec.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    }));
   }
 
-  /* ---- request form -> pre-filled text message ---- */
+  /* ---- contact form -> pre-filled text message ---- */
   const form = $('#reqForm');
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    let ok = true;
-    ['name', 'msg'].forEach((n) => {
-      const f = form.elements[n];
-      const bad = !f.value.trim();
-      f.closest('.fld').classList.toggle('bad', bad);
-      if (bad && ok) { f.focus(); ok = false; }
+  if (form) {
+    const want = new URLSearchParams(location.search).get('room');
+    const pre = want && $(`input[data-key="${CSS.escape(want)}"]`, form);
+    if (pre) pre.checked = true;
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      let ok = true;
+      ['name', 'msg'].forEach((n) => {
+        const f = form.elements[n];
+        const bad = !f.value.trim();
+        f.closest('.fld').classList.toggle('bad', bad);
+        if (bad && ok) { f.focus(); ok = false; }
+      });
+      if (!ok) return;
+      const body = `Hi, this is ${form.elements.name.value.trim()}. ${form.elements.room.value}: ${form.elements.msg.value.trim()}`;
+      // "?&body=" is the form both iOS and Android messaging apps accept
+      location.href = `sms:+14076682768?&body=${encodeURIComponent(body)}`;
     });
-    if (!ok) return;
-    const room = form.elements.room.value;
-    const body = `Hi, this is ${form.elements.name.value.trim()}. ${room}: ${form.elements.msg.value.trim()}`;
-    // "?&body=" is the form both iOS and Android messaging apps accept
-    location.href = `sms:+14076682768?&body=${encodeURIComponent(body)}`;
-  });
+  }
 })();
