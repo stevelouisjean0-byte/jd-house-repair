@@ -177,7 +177,6 @@ ul { padding: 0; list-style: none; }
 .gable-frame video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); animation: settle 3.2s .25s var(--ease) forwards; }
 @keyframes settle { to { transform: scale(1); } }
 .gable-shade { position: absolute; inset: 0; display: block; background: linear-gradient(180deg, transparent 55%, rgba(20,22,28,.35)); }
-.gable .stock { left: 14px; bottom: 14px; }
 
 /* ---------- the house (dusk) ---------- */
 .house {
